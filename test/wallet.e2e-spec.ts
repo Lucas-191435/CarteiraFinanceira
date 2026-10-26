@@ -13,12 +13,18 @@ import { WalletModule } from 'src/modules/wallet/wallet.module';
 import { WalletService } from 'src/modules/wallet/wallet.service';
 import { UserModule } from 'src/modules/user/user.module';
 import { UserService } from 'src/modules/user/user.service';
+import { CacheModule } from 'src/common/cache/cache.module';
+import { CacheService } from 'src/common/cache/cache.service';
+import { WalletRepository } from 'src/modules/wallet/wallet.repository';
 
 describe('WalletService (integração com MySQL)', () => {
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   let walletService: WalletService;
   let userService: UserService;
+  let cache: CacheService;
+  let walletRepository: WalletRepository;
+  let redisUp = false;
 
   const createUser = async () => {
     const email = `user-${randomUUID()}@test.com`;
@@ -50,13 +56,16 @@ describe('WalletService (integração com MySQL)', () => {
 
   beforeAll(async () => {
     moduleRef = await Test.createTestingModule({
-      imports: [PrismaModule, WalletModule, UserModule],
+      imports: [PrismaModule, CacheModule, WalletModule, UserModule],
     }).compile();
     await moduleRef.init();
 
     prisma = moduleRef.get(PrismaService);
     walletService = moduleRef.get(WalletService);
     userService = moduleRef.get(UserService);
+    cache = moduleRef.get(CacheService);
+    walletRepository = moduleRef.get(WalletRepository);
+    redisUp = await cache.waitUntilReady(3000);
   });
 
   afterAll(async () => {
@@ -261,7 +270,7 @@ describe('WalletService (integração com MySQL)', () => {
       expect(sent.transaction.counterpart?.email).toBe(b.email);
       expect(reversal.direction).toBe('CREDIT');
       expect(reversal.transaction.type).toBe('REVERSAL');
-      expect(reversal.balanceAfter.toNumber()).toBe(100);
+      expect(reversal.balanceAfter).toBe('100'); // formato JSON, igual à resposta HTTP
     });
 
     it('canReverse só para quem iniciou, enquanto COMPLETED e fora de estornos', async () => {
@@ -314,6 +323,74 @@ describe('WalletService (integração com MySQL)', () => {
       await expect(userService.lookupRecipient(a.id, `nao-existe-${randomUUID()}@test.com`)).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('cache (Redis)', () => {
+    // Sem Redis rodando, estes testes não têm o que provar: avisam e passam. O caminho "Redis fora"
+    // é coberto pelo último teste, que roda sempre.
+    const skipIfNoRedis = () => {
+      if (!redisUp) console.warn('Redis indisponível: teste de cache pulado (suba com npm run db:up)');
+      return !redisUp;
+    };
+
+    it('segunda leitura do saldo não consulta o banco', async () => {
+      if (skipIfNoRedis()) return;
+      const a = await createUser();
+      await walletService.deposit(a.id, { amount: 10 });
+
+      await walletService.getWallet(a.id); // aquece o cache
+      const spy = jest.spyOn(walletRepository, 'findWalletByUserId');
+      const cached = await walletService.getWallet(a.id);
+      expect(spy).not.toHaveBeenCalled();
+      expect(cached.balance).toBe('10');
+      spy.mockRestore();
+    });
+
+    it('transferência invalida saldo e extrato das duas pontas', async () => {
+      if (skipIfNoRedis()) return;
+      const a = await createUser();
+      const b = await createUser();
+      await walletService.deposit(a.id, { amount: 100 });
+
+      // aquece o cache das duas carteiras
+      expect((await walletService.getWallet(a.id)).balance).toBe('100');
+      expect((await walletService.getWallet(b.id)).balance).toBe('0');
+      expect((await walletService.getStatement(b.id, {})).count).toBe(0);
+
+      await walletService.transfer(a.id, { toEmail: b.email, amount: 30 });
+
+      expect((await walletService.getWallet(a.id)).balance).toBe('70');
+      expect((await walletService.getWallet(b.id)).balance).toBe('30');
+      expect((await walletService.getStatement(b.id, {})).count).toBe(1);
+    });
+
+    it('estorno invalida o canReverse e os saldos', async () => {
+      if (skipIfNoRedis()) return;
+      const a = await createUser();
+      const b = await createUser();
+      await walletService.deposit(a.id, { amount: 50 });
+      const transfer = await walletService.transfer(a.id, { toEmail: b.email, amount: 20 });
+
+      const before = await walletService.getStatement(a.id, {});
+      expect(before.rows.find((r) => r.transaction.id === transfer.id)?.transaction.canReverse).toBe(true);
+
+      await walletService.reverse(a.id, transfer.id, {});
+
+      const after = await walletService.getStatement(a.id, {});
+      expect(after.rows.find((r) => r.transaction.id === transfer.id)?.transaction.canReverse).toBe(false);
+      expect((await walletService.getWallet(b.id)).balance).toBe('0');
+    });
+
+    it('sem Redis, tudo vai direto ao banco (cache desligado)', async () => {
+      const disabled = new CacheService(null);
+      expect(disabled.available).toBe(false);
+
+      const loader = jest.fn().mockResolvedValue({ ok: 1 });
+      await disabled.remember('qualquer', 60, loader);
+      await disabled.remember('qualquer', 60, loader);
+      expect(loader).toHaveBeenCalledTimes(2);
+      await expect(disabled.bumpWallets('x')).resolves.toBeUndefined();
     });
   });
 });

@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { Prisma } from 'src/generated/prisma/client';
 import { TransactionStatus, TransactionType } from 'src/generated/prisma/enums';
+import { CacheService, DEFAULT_TTL_SECONDS } from 'src/common/cache/cache.service';
+import { toJson } from 'src/common/cache/jsonified';
 import { WalletRepository } from './wallet.repository';
 import { DepositDto, ReverseTransactionDto, StatementQueryDto, TransferDto } from './dto';
 
@@ -17,26 +19,67 @@ const REVERSAL_DESCRIPTION: Record<TransactionType, string> = {
   REVERSAL: 'Estorno',
 };
 
+/** userId → walletId não muda (1:1, a carteira nasce com o usuário): pode ficar mais tempo no cache. */
+const WALLET_ID_TTL_SECONDS = 24 * 60 * 60;
+
+/**
+ * Leituras (saldo, extrato) passam pelo Redis com chave por carteira + versão. Escritas incrementam a
+ * versão das carteiras envolvidas DEPOIS do commit, e as chaves antigas deixam de ser lidas na hora.
+ * Validação de saldo (lockWallets) nunca usa o cache.
+ */
 @Injectable()
 export class WalletService {
-  constructor(private readonly walletRepository: WalletRepository) {}
+  constructor(
+    private readonly walletRepository: WalletRepository,
+    private readonly cache: CacheService,
+  ) {}
 
   async getWallet(userId: string) {
-    const { id, balance, updatedAt } = await this.walletRepository.findWalletByUserId(userId);
+    const load = async () => {
+      const { id, balance, updatedAt } = await this.walletRepository.findWalletByUserId(userId);
+      return { id, balance, updatedAt };
+    };
+    // Sem Redis, vai direto ao banco (sem a consulta extra do walletId)
+    if (!this.cache.available) return toJson(await load());
 
-    return { id, balance, updatedAt };
+    const walletId = await this.walletIdOf(userId);
+    const version = await this.cache.walletVersion(walletId);
+    return this.cache.remember(`wallet:${walletId}:v${version}:balance`, DEFAULT_TTL_SECONDS, load);
   }
 
   async getStatement(userId: string, query: StatementQueryDto) {
-    const wallet = await this.walletRepository.findWalletByUserId(userId);
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 20;
+    const from = query.from ? new Date(query.from) : undefined;
+    const to = query.to ? new Date(query.to) : undefined;
 
-    const { count, rows } = await this.walletRepository.findStatement({
-      walletId: wallet.id,
-      page: query.page ?? 1,
-      pageSize: query.pageSize ?? 20,
-      from: query.from ? new Date(query.from) : undefined,
-      to: query.to ? new Date(query.to) : undefined,
+    if (!this.cache.available) {
+      const wallet = await this.walletRepository.findWalletByUserId(userId);
+      return toJson(await this.loadStatement(userId, wallet.id, { page, pageSize, from, to }));
+    }
+
+    const walletId = await this.walletIdOf(userId);
+    const version = await this.cache.walletVersion(walletId);
+    // ISO normalizado: "2026-09-01T03:00Z" e "2026-09-01T03:00:00.000Z" caem na mesma chave
+    const key = `wallet:${walletId}:v${version}:stmt:${page}:${pageSize}:${from?.toISOString() ?? '-'}:${to?.toISOString() ?? '-'}`;
+    return this.cache.remember(key, DEFAULT_TTL_SECONDS, () =>
+      this.loadStatement(userId, walletId, { page, pageSize, from, to }),
+    );
+  }
+
+  private async walletIdOf(userId: string) {
+    return this.cache.remember(`user:${userId}:walletId`, WALLET_ID_TTL_SECONDS, async () => {
+      const wallet = await this.walletRepository.findWalletByUserId(userId);
+      return wallet.id;
     });
+  }
+
+  private async loadStatement(
+    userId: string,
+    walletId: string,
+    { page, pageSize, from, to }: { page: number; pageSize: number; from?: Date; to?: Date },
+  ) {
+    const { count, rows } = await this.walletRepository.findStatement({ walletId, page, pageSize, from, to });
 
     return {
       count,
@@ -67,7 +110,7 @@ export class WalletService {
     const replay = await this.findReplay(userId, dto.idempotencyKey);
     if (replay) return replay;
 
-    return this.withIdempotency(() =>
+    const transaction = await this.withIdempotency(() =>
       this.walletRepository.runInTransaction(async (tx) => {
         const wallet = await this.walletRepository.findWalletByUserId(userId, tx);
         const balances = await this.walletRepository.lockWallets(tx, [wallet.id]);
@@ -87,6 +130,10 @@ export class WalletService {
         );
       }),
     );
+
+    // Depois do commit: se fosse dentro da transação, uma leitura no meio gravaria o estado antigo
+    await this.cache.bumpWallets(transaction.toWalletId);
+    return transaction;
   }
 
   async transfer(userId: string, dto: TransferDto) {
@@ -95,7 +142,7 @@ export class WalletService {
     const replay = await this.findReplay(userId, dto.idempotencyKey);
     if (replay) return replay;
 
-    return this.withIdempotency(() =>
+    const transaction = await this.withIdempotency(() =>
       this.walletRepository.runInTransaction(async (tx) => {
         const fromWallet = await this.walletRepository.findWalletByUserId(userId, tx);
         const toWallet = await this.walletRepository.findWalletByUserEmail(dto.toEmail, tx);
@@ -129,10 +176,14 @@ export class WalletService {
         );
       }),
     );
+
+    // As duas pontas: quem recebeu também vê o saldo novo na próxima leitura
+    await this.cache.bumpWallets(transaction.fromWalletId, transaction.toWalletId);
+    return transaction;
   }
 
   async reverse(userId: string, transactionId: string, dto: ReverseTransactionDto) {
-    return this.walletRepository.runInTransaction(async (tx) => {
+    const reversal = await this.walletRepository.runInTransaction(async (tx) => {
       const original = await this.walletRepository.findTransactionById(transactionId, tx);
 
       if (original.initiatorId !== userId) {
@@ -165,6 +216,10 @@ export class WalletService {
         balances,
       );
     });
+
+    // As carteiras da original (o estorno é o movimento inverso entre elas); canReverse também muda
+    await this.cache.bumpWallets(reversal.fromWalletId, reversal.toWalletId);
+    return reversal;
   }
 
   /**

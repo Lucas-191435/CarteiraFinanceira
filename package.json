@@ -18,11 +18,12 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "db:up": "docker compose -f ../docker-compose.yml up -d mysql",
-    "db:down": "docker compose -f ../docker-compose.yml stop mysql",
+    "db:up": "docker compose -f ../docker-compose.yml up -d mysql redis",
+    "db:down": "docker compose -f ../docker-compose.yml stop mysql redis",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "seed": "prisma db seed"
+    "seed": "prisma db seed",
+    "cache:monitor": "node scripts/cache-monitor.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -38,6 +39,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "dotenv": "^17.4.2",
+    "ioredis": "^6.0.0",
     "mariadb": "^3.5.2",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",

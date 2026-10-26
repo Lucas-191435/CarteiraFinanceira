@@ -4,6 +4,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './common/database/prisma.module';
+import { CacheModule } from './common/cache/cache.module';
 import { AuthModule as JwtGuardModule } from './common/auth/auth.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
@@ -21,6 +22,7 @@ import { LoggerMiddleware } from './common/middleware/logger.middleware';
       },
     ]),
     PrismaModule,
+    CacheModule,
     JwtGuardModule,
     AuthModule,
     UserModule,

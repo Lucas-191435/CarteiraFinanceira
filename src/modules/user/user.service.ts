@@ -1,16 +1,27 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import bcrypt from 'bcrypt';
+import { CacheService, DEFAULT_TTL_SECONDS } from 'src/common/cache/cache.service';
 import { UserRepository } from './user.repository';
 import { CreateUserDto } from './dto';
 
 const RECIPIENT_SEARCH_LIMIT = 10;
 
+/** Usuários novos aparecem na busca em até 1 min. */
+const SEARCH_TTL_SECONDS = 60;
+
 @Injectable()
 export class UserService {
-  constructor(private readonly userRepository: UserRepository) {}
+  constructor(
+    private readonly userRepository: UserRepository,
+    private readonly cache: CacheService,
+  ) {}
 
+  /**
+   * GET /user/me, chamado em toda página do front. Sem invalidação: não há rota que altere nome ou
+   * e-mail. Usuário inexistente lança 404 e não entra no cache.
+   */
   async findUser(id: string) {
-    return this.userRepository.findUserById(id);
+    return this.cache.remember(`user:${id}:me`, DEFAULT_TTL_SECONDS, () => this.userRepository.findUserById(id));
   }
 
   /**
@@ -30,13 +41,17 @@ export class UserService {
     return { name: user.name };
   }
 
-  /** Destinatários para o select da transferência: nome + e-mail, sem o próprio usuário. */
+  /**
+   * Destinatários para o select da transferência: nome + e-mail, sem o próprio usuário.
+   * A chave inclui quem busca, porque o resultado exclui o próprio usuário.
+   */
   async searchRecipients(userId: string, query?: string) {
-    return this.userRepository.searchUsers({
-      query: query?.trim() ?? '',
-      excludeUserId: userId,
-      take: RECIPIENT_SEARCH_LIMIT,
-    });
+    // A collation do MySQL já ignora maiúsculas: "Bru" e "bru" são a mesma busca e a mesma chave
+    const term = query?.trim().toLowerCase() ?? '';
+
+    return this.cache.remember(`search:${userId}:${term}`, SEARCH_TTL_SECONDS, () =>
+      this.userRepository.searchUsers({ query: term, excludeUserId: userId, take: RECIPIENT_SEARCH_LIMIT }),
+    );
   }
 
   async createUser(dto: CreateUserDto) {

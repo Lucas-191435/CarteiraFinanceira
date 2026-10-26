@@ -2,6 +2,7 @@ import bcrypt from 'bcrypt';
 import { ConflictException, UnprocessableEntityException } from '@nestjs/common';
 import prismaClient from '../database';
 import { PrismaService } from 'src/common/database/prisma.service';
+import { CacheService } from 'src/common/cache/cache.service';
 import { WalletRepository } from 'src/modules/wallet/wallet.repository';
 import { WalletService } from 'src/modules/wallet/wallet.service';
 
@@ -25,7 +26,12 @@ const USERS = {
 
 type UserKey = keyof typeof USERS;
 
-const walletService = new WalletService(new WalletRepository(prismaClient as unknown as PrismaService));
+// Cache desligado (null): o seed só cria usuários novos, então não há cache antigo a invalidar,
+// e sem conexão com o Redis o processo termina sozinho.
+const walletService = new WalletService(
+  new WalletRepository(prismaClient as unknown as PrismaService),
+  new CacheService(null),
+);
 
 const userIds = {} as Record<UserKey, string>;
 const refs: Record<string, string> = {}; // ids de transações que serão estornadas depois
