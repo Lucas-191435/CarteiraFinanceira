@@ -22,8 +22,6 @@ type StatementListProps = {
 /** Lista de lançamentos agrupada por dia (Server Component; sem cache, sempre fresca). */
 export async function StatementList({ page = 1, pageSize, from, to, emptyMessage, pageHref }: StatementListProps) {
   const statement = await getStatement(page, pageSize, from, to);
-  // Depois de ler dados da requisição: com Cache Components, a hora atual só pode ser lida aqui
-  const now = new Date();
 
   if (statement.rows.length === 0) {
     return <p className={cn("py-6 text-center text-sm text-muted-foreground", FADE_IN)}>{emptyMessage}</p>;
@@ -41,7 +39,7 @@ export async function StatementList({ page = 1, pageSize, from, to, emptyMessage
     <div className={cn("space-y-4", FADE_IN)}>
       {[...groups].map(([key, entries]) => (
         <section key={key}>
-          <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{dayLabel(key, now)}</h3>
+          <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{dayLabel(key)}</h3>
           <ul className="divide-y">
             {entries.map((entry) => (
               <StatementItem key={entry.id} entry={entry} />
@@ -77,8 +75,9 @@ function PageLink({ href, children }: { href?: string; children: React.ReactNode
   }
   return (
     <Button asChild variant="outline" size="sm">
-      {/* prefetch: a rota depende de searchParams, então só é instantânea com prefetch por link */}
-      <Link href={href} prefetch>
+      {/* Sem prefetch: cada link pré-carregado custaria uma chamada ao servidor só por aparecer na tela.
+          A página só é buscada no clique, e as já vistas saem do Client Cache. */}
+      <Link href={href}>
         {children}
       </Link>
     </Button>

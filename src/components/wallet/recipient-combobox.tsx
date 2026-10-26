@@ -9,7 +9,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import type { IRecipient } from "@/types/IUser";
 
-const SEARCH_DEBOUNCE_MS = 250;
+const SEARCH_DEBOUNCE_MS = 300;
+
+const normalize = (term: string) => term.trim().toLowerCase();
 
 type RecipientComboboxProps = {
   id: string;
@@ -23,6 +25,9 @@ type RecipientComboboxProps = {
 /**
  * Select pesquisável de destinatários: digita nome ou e-mail e a lista vem da API
  * (GET /user/search, via Server Action), sem o próprio usuário.
+ *
+ * A busca é uma Server Action (POST), que o Client Cache não cobre: o cache é um Map no próprio
+ * componente, por termo. Vale enquanto a tela estiver montada (abrir/fechar o modal reaproveita).
  */
 export function RecipientCombobox({ id, value, onChange, onBlur, invalid, describedBy }: RecipientComboboxProps) {
   const [open, setOpen] = useState(false);
@@ -31,10 +36,28 @@ export function RecipientCombobox({ id, value, onChange, onBlur, invalid, descri
   const [error, setError] = useState<string>();
   const [isSearching, startSearch] = useTransition();
   const debounce = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const cache = useRef(new Map<string, IRecipient[]>());
+  const latestTerm = useRef("");
 
-  const runSearch = (term: string) => {
+  const runSearch = (rawTerm: string) => {
+    const term = normalize(rawTerm);
+    latestTerm.current = term;
+
+    const cached = cache.current.get(term);
+    if (cached) {
+      setResults(cached);
+      setError(undefined);
+      return;
+    }
+
     startSearch(async () => {
       const result = await searchRecipientsAction(term);
+      if (result?.ok) {
+        cache.current.set(term, result.data ?? []);
+      }
+      // Resposta atrasada de um termo antigo ("bru" chegando depois de "brun") não sobrescreve a atual
+      if (term !== latestTerm.current) return;
+
       if (result?.ok) {
         setResults(result.data ?? []);
         setError(undefined);

@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { connection } from "next/server";
 import { AppHeader } from "@/components/layout/app-header";
 import { FADE_IN } from "@/components/loading/text-skeleton";
 import { MonthFilter } from "@/components/wallet/month-filter";
@@ -8,7 +7,7 @@ import { StatementFilterSkeleton, StatementSkeleton } from "@/components/wallet/
 import { StatementHero } from "@/components/wallet/statement-hero";
 import { StatementList } from "@/components/wallet/statement-list";
 import { PrivateRoutes } from "@/constants/routes";
-import { lastMonths, monthLabel, monthRange } from "@/lib/format";
+import { monthLabel, monthRange } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Extrato" };
@@ -43,11 +42,6 @@ async function StatementContent({ searchParams }: Pick<PageProps<"/carteira/extr
   const range = month ? monthRange(month) : null;
   const selectedMonth = range ? month : undefined; // mês inválido na URL = todos
 
-  // searchParams não basta para "hora da requisição": com Partial Prefetching ele pode ser conhecido
-  // no prefetch. connection() garante que o "mês atual" é calculado na requisição, não congelado.
-  await connection();
-  const options = lastMonths(new Date(), 12).map((value) => ({ value, label: monthLabel(value) }));
-
   const pageHref = (target: number) => {
     const query = new URLSearchParams();
     if (selectedMonth) query.set("mes", selectedMonth);
@@ -62,7 +56,7 @@ async function StatementContent({ searchParams }: Pick<PageProps<"/carteira/extr
         <h2 className="font-display text-xl text-navy first-letter:uppercase">
           {selectedMonth ? monthLabel(selectedMonth) : "Todas as movimentações"}
         </h2>
-        <MonthFilter value={selectedMonth} options={options} />
+        <MonthFilter value={selectedMonth} />
       </div>
 
       {/* key: ao trocar de mês/página, a lista volta para o skeleton em vez de mostrar os dados antigos */}

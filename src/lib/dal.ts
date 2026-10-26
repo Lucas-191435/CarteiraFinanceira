@@ -1,5 +1,5 @@
 import "server-only";
-import { cache } from "react";
+import { cacheLife, cacheTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { PublicRoutes } from "@/constants/routes";
 import type { IUser } from "@/types/IUser";
@@ -8,10 +8,27 @@ import { ApiError, apiFetch } from "./api";
 import { getSessionToken } from "./session";
 
 // Camada de acesso a dados: toda leitura autenticada passa por aqui.
-// cache() do React deduplica dentro da mesma requisição (layout + página = 1 chamada à API).
+//
+// "use cache: private": o resultado fica no Client Cache do navegador desta pessoa (nunca num cache
+// compartilhado do servidor) e pode ler o cookie da sessão. Dentro do prazo (stale), voltar a uma
+// tela, página ou mês já visto não faz request nenhum. Também deduplica dentro da requisição.
+// Invalidação: as Server Actions chamam updateTag(...) depois de escrever; login/logout trocam o
+// cookie, o que já descarta o cache.
+
+/** Prazo de reaproveitamento no navegador. 5 min também é o mínimo para entrar no App Shell da rota. */
+const CLIENT_STALE_SECONDS = 300;
+
+export const CacheTags = {
+  session: "session",
+  wallet: "wallet",
+} as const;
 
 /** Usuário da sessão atual, ou null se não houver sessão válida. */
-export const getCurrentUser = cache(async (): Promise<IUser | null> => {
+export async function getCurrentUser(): Promise<IUser | null> {
+  "use cache: private";
+  cacheLife({ stale: CLIENT_STALE_SECONDS });
+  cacheTag(CacheTags.session);
+
   if (!(await getSessionToken())) {
     return null;
   }
@@ -25,7 +42,7 @@ export const getCurrentUser = cache(async (): Promise<IUser | null> => {
     }
     throw error;
   }
-});
+}
 
 /**
  * Usuário da sessão ou redirect. Vai para /sair (e não direto para /login) porque o cookie
@@ -39,12 +56,22 @@ export async function requireUser(): Promise<IUser> {
   return user;
 }
 
-export const getWallet = cache(() => apiFetch<IWallet>("/wallet"));
+export async function getWallet(): Promise<IWallet> {
+  "use cache: private";
+  cacheLife({ stale: CLIENT_STALE_SECONDS });
+  cacheTag(CacheTags.wallet);
 
-// Argumentos primitivos: o cache() do React compara por referência, e um objeto nunca deduplicaria
-export const getStatement = cache((page: number, pageSize: number, from?: string, to?: string) => {
+  return apiFetch<IWallet>("/wallet");
+}
+
+/** Os argumentos entram na chave do cache: cada página/mês é uma entrada separada. */
+export async function getStatement(page: number, pageSize: number, from?: string, to?: string): Promise<IStatement> {
+  "use cache: private";
+  cacheLife({ stale: CLIENT_STALE_SECONDS });
+  cacheTag(CacheTags.wallet);
+
   const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
   if (from) query.set("from", from);
   if (to) query.set("to", to);
   return apiFetch<IStatement>(`/wallet/statement?${query}`);
-});
+}

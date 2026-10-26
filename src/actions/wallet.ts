@@ -1,10 +1,11 @@
 "use server";
 
-import { refresh } from "next/cache";
+import { refresh, updateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { PublicRoutes } from "@/constants/routes";
 import { ApiError, apiFetch } from "@/lib/api";
+import { CacheTags } from "@/lib/dal";
 import { brl } from "@/lib/format";
 import { parseAmount } from "@/lib/money";
 import type { ActionState } from "@/types/action";
@@ -13,10 +14,18 @@ import type { ITransaction } from "@/types/IWallet";
 import { depositSchema, reverseSchema, transferSchema } from "@/validations/wallet";
 
 // Toda action revalida no servidor (o client nunca é confiável) e a autorização vem do cookie.
-// Sucesso → refresh(): re-renderiza a rota atual; como saldo e extrato não têm cache,
-// a tela volta atualizada na mesma resposta.
+// Sucesso → walletChanged(): expira o cache de saldo e extrato e devolve a tela atual atualizada.
 
 const GENERIC_ERROR = "Não foi possível concluir agora. Tente novamente.";
+
+/**
+ * Saldo/extrato mudaram: updateTag expira o cache (todas as páginas e meses; a próxima leitura espera
+ * o dado novo, sem servir o antigo) e refresh() devolve a tela atual já atualizada na mesma resposta.
+ */
+function walletChanged() {
+  updateTag(CacheTags.wallet);
+  refresh();
+}
 
 type ErrorMessages = Partial<Record<number, { message?: string; field?: string }>>;
 
@@ -75,7 +84,7 @@ export async function depositAction(_prev: ActionState, formData: FormData): Pro
     );
   }
 
-  refresh();
+  walletChanged();
   return { ok: true, message: `Depósito de ${brl(amount)} realizado` };
 }
 
@@ -125,7 +134,7 @@ export async function transferAction(_prev: ActionState, formData: FormData): Pr
     );
   }
 
-  refresh();
+  walletChanged();
   return { ok: true, message: `${brl(amount)} enviados` };
 }
 
@@ -154,11 +163,11 @@ export async function reverseAction(transactionId: string, _prev: ActionState, f
     );
     // A lista estava desatualizada (outra aba já estornou, por exemplo): corrige a tela também
     if (error instanceof ApiError && (error.status === 404 || error.status === 409)) {
-      refresh();
+      walletChanged();
     }
     return result;
   }
 
-  refresh();
+  walletChanged();
   return { ok: true, message: "Operação estornada" };
 }

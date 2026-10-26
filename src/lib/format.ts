@@ -15,8 +15,7 @@ export const isNegative = (value: string) => value.trim().startsWith("-");
 
 const TIME = new Intl.DateTimeFormat("pt-BR", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit" });
 const DAY_KEY = new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" });
-const DAY_LABEL = new Intl.DateTimeFormat("pt-BR", { timeZone: TIME_ZONE, day: "numeric", month: "long" });
-const DAY_LABEL_YEAR = new Intl.DateTimeFormat("pt-BR", { timeZone: TIME_ZONE, day: "numeric", month: "long", year: "numeric" });
+const DAY_LABEL = new Intl.DateTimeFormat("pt-BR", { timeZone: TIME_ZONE, day: "numeric", month: "long", year: "numeric" });
 const MONTH_LABEL = new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC", month: "long", year: "numeric" });
 
 export const formatTime = (iso: string) => TIME.format(new Date(iso));
@@ -24,16 +23,11 @@ export const formatTime = (iso: string) => TIME.format(new Date(iso));
 /** "2026-10-24" no fuso de Brasília. */
 export const dayKey = (date: Date | string) => DAY_KEY.format(new Date(date));
 
-/** "Hoje", "Ontem", "23 de outubro" ou "23 de outubro de 2025". */
-export function dayLabel(key: string, now: Date) {
-  const today = dayKey(now);
-  const yesterday = dayKey(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-  if (key === today) return "Hoje";
-  if (key === yesterday) return "Ontem";
-
-  const date = new Date(`${key}T12:00:00-03:00`);
-  return key.slice(0, 4) === today.slice(0, 4) ? DAY_LABEL.format(date) : DAY_LABEL_YEAR.format(date);
-}
+/**
+ * "24 de outubro de 2026": sempre com o ano. Sem "Hoje"/"Ontem" de propósito — exigiria o relógio
+ * (leitura dinâmica fora de cache, que impede o Client Cache de reaproveitar o extrato).
+ */
+export const dayLabel = (key: string) => DAY_LABEL.format(new Date(`${key}T12:00:00-03:00`));
 
 // ---- Meses (filtro do extrato) ----
 // Brasília não tem horário de verão desde 2019: o offset é fixo em -03:00.
