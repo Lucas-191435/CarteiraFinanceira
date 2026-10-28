@@ -1,0 +1,123 @@
+# Ambiente completo da versão Node via Docker: mysql + redis + api + front.
+# Variáveis vêm do .env desta pasta (veja .env.example).
+#
+#   docker compose up -d --build                     sobe tudo (front em http://localhost:4000)
+#   docker compose up -d --build --no-deps api       atualiza só a api
+#   docker compose up -d --build --no-deps front     atualiza só o front
+#   docker compose --profile tools run --rm seed     popula o banco do container
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: carteira-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD:-12345678}
+      MYSQL_DATABASE: ${DATABASE_NAME:-carteiraFinanceiraBolt}
+    ports:
+      - "${MYSQL_PORT:-4306}:3306" # 4306 no host: a faixa 4xxx é desta stack, sem conflito com outros projetos
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Cache da API (leituras de saldo, extrato, usuário). Sem persistência: pode começar vazio.
+  # Se encher, descarta o menos usado (allkeys-lru) em vez de recusar escrita.
+  redis:
+    image: redis:7-alpine
+    container_name: carteira-redis
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru", "--save", ""]
+    ports:
+      - "${REDIS_PORT:-4379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./api
+      target: runtime
+    container_name: carteira-api
+    restart: unless-stopped
+    environment: &api-env
+      # Dentro da rede do compose o host do banco é o nome do serviço, não localhost
+      DATABASE_HOST: mysql
+      DATABASE_PORT: 3306
+      DATABASE_USER: root
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-12345678}
+      DATABASE_NAME: ${DATABASE_NAME:-carteiraFinanceiraBolt}
+      DATABASE_URL: mysql://root:${DATABASE_PASSWORD:-12345678}@mysql:3306/${DATABASE_NAME:-carteiraFinanceiraBolt}
+      JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET no .env da raiz}
+      REDIS_URL: redis://redis:6379
+      PORT: 3333
+      APP_URL: http://localhost:${API_PORT:-4333}
+      # Login do Swagger; vazias, a documentação fica aberta
+      SWAGGER_USER: ${SWAGGER_USER:-}
+      SWAGGER_PASSWORD: ${SWAGGER_PASSWORD:-}
+    ports:
+      - "${API_PORT:-4333}:3333"
+    # O front só sobe quando a API responde (GET / é público)
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3333/ > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    depends_on:
+      mysql:
+        condition: service_healthy
+      # Sem service_healthy: a API sobe mesmo se o Redis não subir (o cache é opcional)
+      redis:
+        condition: service_started
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # Roda o seed usando o estágio de build (tem o código-fonte e o tsx). Não sobe com `up`.
+  seed:
+    build:
+      context: ./api
+      target: builder
+    profiles: ["tools"]
+    environment: *api-env
+    command: ["npx", "prisma", "db", "seed"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  front:
+    build:
+      context: ./front
+      args:
+        # Atalho dos usuários do seed na tela de login (embutido no build)
+        NEXT_PUBLIC_SHOW_TEST_USERS: ${SHOW_TEST_USERS:-true}
+    container_name: carteira-front
+    restart: unless-stopped
+    environment:
+      # O front chama a API pelo servidor Next, pela rede interna do compose
+      API_URL: http://api:3333
+      # http:// → cookie de sessão sem Secure; em produção com HTTPS, troque por https://
+      APP_URL: http://localhost:${FRONT_PORT:-4000}
+      # Botão "Simular erro" na modal de transferência (ENABLE_ERROR_SIMULATOR=true docker compose up)
+      ENABLE_ERROR_SIMULATOR: ${ENABLE_ERROR_SIMULATOR:-false}
+    ports:
+      - "${FRONT_PORT:-4000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  mysql_data:

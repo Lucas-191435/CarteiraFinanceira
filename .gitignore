@@ -1,0 +1,19 @@
+# dotenv
+.env
+.env.*
+!.env.example
+
+# OS / IDE
+.DS_Store
+.idea
+
+# Fora do repositório da versão Node: a versão Laravel (repositório próprio), os planos em docs/
+# e o CLAUDE.md da raiz, que descreve as duas versões. O api/CLAUDE.md e o front/CLAUDE.md entram.
+/laravel/
+/saldo-sure-send/
+/docs/
+/CLAUDE.md
+/.claude/
+
+# Recriado pelo `next dev`
+/front/AGENTS.md
