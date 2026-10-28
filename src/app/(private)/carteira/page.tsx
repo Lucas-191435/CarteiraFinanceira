@@ -11,6 +11,7 @@ import { StatementList } from "@/components/wallet/statement-list";
 import { TransferDialog } from "@/components/wallet/transfer-dialog";
 import { PrivateRoutes } from "@/constants/routes";
 import { getWallet, requireUser } from "@/lib/dal";
+import { errorSimulatorEnabled } from "@/lib/error-simulator";
 import { brl, isNegative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -78,7 +79,7 @@ async function WalletActions() {
   return (
     <div className={cn("grid gap-4 sm:grid-cols-2", FADE_IN)}>
       <DepositDialog balance={wallet.balance} />
-      <TransferDialog balance={wallet.balance} />
+      <TransferDialog balance={wallet.balance} errorSimulator={errorSimulatorEnabled()} />
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AlertCircle, Send } from "lucide-react";
 import { toast } from "sonner";
-import { transferAction } from "@/actions/wallet";
+import { searchRecipientsAction, transferAction } from "@/actions/wallet";
 import { Field } from "@/components/forms/field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { SIMULATE_STATUS_FIELD } from "@/constants/error-simulator";
 import { applyServerFieldErrors } from "@/hooks/use-server-field-errors";
 import { brl } from "@/lib/format";
 import { maskCurrency, parseAmount } from "@/lib/money";
@@ -26,13 +27,14 @@ import { uuid } from "@/lib/uuid";
 import type { IRecipient } from "@/types/IUser";
 import { transferFormSchema, type TransferInput } from "@/validations/wallet";
 import { ActionCard } from "./action-card";
+import { type ErrorScenario, ErrorSimulator } from "./error-simulator";
 import { RecipientCombobox } from "./recipient-combobox";
 
 /**
  * Dois passos: dados → confirmação. O destinatário vem de um select pesquisável (nome ou e-mail),
  * o valor tem máscara de moeda e não pode passar do saldo. A API valida tudo de novo.
  */
-export function TransferDialog({ balance }: { balance: string }) {
+export function TransferDialog({ balance, errorSimulator = false }: { balance: string; errorSimulator?: boolean }) {
   const [open, setOpen] = useState(false);
   const [recipient, setRecipient] = useState<IRecipient | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -65,15 +67,27 @@ export function TransferDialog({ balance }: { balance: string }) {
     setConfirming(true);
   });
 
-  const onConfirm = () => {
-    const values = form.getValues();
-    const formData = new FormData();
-    formData.set("toEmail", values.toEmail);
-    formData.set("amount", values.amount);
-    formData.set("description", values.description ?? "");
-    formData.set("idempotencyKey", idempotencyKey);
-
+  const send = (values: TransferInput, simulateStatus?: number, resolveRecipient?: () => Promise<IRecipient | null>) => {
     startTransition(async () => {
+      let toEmail = values.toEmail;
+      if (resolveRecipient) {
+        const resolved = await resolveRecipient();
+        if (!resolved) {
+          setMessage("Nenhum destinatário disponível para o cenário");
+          return;
+        }
+        setRecipient(resolved);
+        form.setValue("toEmail", resolved.email);
+        toEmail = resolved.email;
+      }
+
+      const formData = new FormData();
+      formData.set("toEmail", toEmail);
+      formData.set("amount", values.amount);
+      formData.set("description", values.description ?? "");
+      formData.set("idempotencyKey", idempotencyKey);
+      if (simulateStatus) formData.set(SIMULATE_STATUS_FIELD, String(simulateStatus));
+
       const result = await transferAction(undefined, formData);
       if (result?.ok) {
         toast.success(result.message);
@@ -85,6 +99,31 @@ export function TransferDialog({ balance }: { balance: string }) {
       applyServerFieldErrors(form, result);
       setMessage(result?.message);
     });
+  };
+
+  const onConfirm = () => send(form.getValues());
+
+  /**
+   * Simulador: preenche o formulário com os dados do cenário e envia direto para a action, sem a
+   * validação do client (que bloquearia 400/422 antes da API). O resultado aparece como um erro real.
+   */
+  const runScenario = (scenario: ErrorScenario) => {
+    setMessage(undefined);
+    setConfirming(false);
+    setRecipient(scenario.recipient ?? null);
+    const values = { toEmail: scenario.recipient?.email ?? "", amount: scenario.amount, description: "" };
+    form.reset(values);
+
+    // Sem destinatário fixo: o primeiro da busca, que já exclui o próprio usuário (a API precisa achar
+    // o destinatário para chegar ao 422)
+    const resolveRecipient = scenario.recipient
+      ? undefined
+      : async () => {
+          const result = await searchRecipientsAction("");
+          return result?.ok ? (result.data?.[0] ?? null) : null;
+        };
+
+    send(values, scenario.simulateStatus, resolveRecipient);
   };
 
   const amount = parseAmount(form.getValues("amount") ?? "");
@@ -190,7 +229,10 @@ export function TransferDialog({ balance }: { balance: string }) {
             />
 
             <DialogFooter>
-              <Button type="submit">Continuar</Button>
+              {errorSimulator && <ErrorSimulator balance={balance} disabled={isPending} onRun={runScenario} />}
+              <Button type="submit" disabled={isPending}>
+                {isPending ? "Enviando..." : "Continuar"}
+              </Button>
             </DialogFooter>
           </form>
         )}

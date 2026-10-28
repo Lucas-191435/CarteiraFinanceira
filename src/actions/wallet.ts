@@ -3,9 +3,11 @@
 import { refresh, updateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { SIMULATE_STATUS_FIELD, SIMULATED_STATUSES } from "@/constants/error-simulator";
 import { PublicRoutes } from "@/constants/routes";
 import { ApiError, apiFetch } from "@/lib/api";
 import { CacheTags } from "@/lib/dal";
+import { errorSimulatorEnabled } from "@/lib/error-simulator";
 import { brl } from "@/lib/format";
 import { parseAmount } from "@/lib/money";
 import type { ActionState } from "@/types/action";
@@ -61,6 +63,12 @@ const idempotencyKeyOf = (formData: FormData) => {
   return typeof key === "string" && key.length > 0 && key.length <= 100 ? key : undefined;
 };
 
+/** Status pedido pelo simulador de erros, se for um dos aceitos. */
+const simulatedStatusOf = (formData: FormData) => {
+  const status = Number(formData.get(SIMULATE_STATUS_FIELD));
+  return (SIMULATED_STATUSES as readonly number[]).includes(status) ? status : undefined;
+};
+
 export async function depositAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = depositSchema.safeParse(fields(formData, "amount", "description"));
   if (!parsed.success) {
@@ -110,8 +118,16 @@ export async function transferAction(_prev: ActionState, formData: FormData): Pr
     return { ok: false, fieldErrors: z.flattenError(parsed.error).fieldErrors };
   }
 
+  const simulated = simulatedStatusOf(formData);
+  if (simulated && !errorSimulatorEnabled()) {
+    return { ok: false, message: "Simulador de erros desligado" };
+  }
+
   const amount = parseAmount(parsed.data.amount)!;
   try {
+    // Simulador: lança o erro que a API devolveria, sem chamar a API, e segue o caminho de um erro real
+    if (simulated) throw new ApiError(simulated, "Erro simulado");
+
     await apiFetch<ITransaction>("/wallet/transfer", {
       method: "POST",
       body: {
