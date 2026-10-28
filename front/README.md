@@ -9,4 +9,4 @@ npm run dev                  # http://localhost:4000 (a API precisa estar em API
 npm run build && npm run lint
 ```
 
-Plano, decisões e status: [`../docs/front/`](../docs/front/README.md).
+Para subir a stack completa (MySQL, Redis, API e front) com Docker, veja o [README da raiz](../README.md).
