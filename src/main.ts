@@ -3,6 +3,7 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { swaggerBasicAuth } from './common/middleware/swagger-auth.middleware';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -35,6 +36,15 @@ async function bootstrap() {
     .addBearerAuth()
     .build();
 
+  // Antes do SwaggerModule.setup: cobre a UI, os assets e o JSON (/docs/swagger-json)
+  const swaggerUser = process.env.SWAGGER_USER;
+  const swaggerPassword = process.env.SWAGGER_PASSWORD;
+  if (swaggerUser && swaggerPassword) {
+    app.use('/docs', swaggerBasicAuth(swaggerUser, swaggerPassword));
+  } else {
+    logger.warn('SWAGGER_USER/SWAGGER_PASSWORD ausentes: documentação em /docs sem senha');
+  }
+
   const document = SwaggerModule.createDocument(app, config);
 
   // Swagger UI em /docs/swagger
@@ -44,7 +54,7 @@ async function bootstrap() {
     swaggerOptions: { defaultModelsExpandDepth: -1, persistAuthorization: true },
   });
 
-  const port = process.env.PORT ?? 3333;
+  const port = process.env.PORT ?? 4333;
   await app.listen(port);
 
   const url = await app.getUrl();

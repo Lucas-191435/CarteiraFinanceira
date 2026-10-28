@@ -21,7 +21,7 @@ const SHOW_ALL = args.has('--all');
 const IDLE_MS = 300;
 const NOISE = new Set(['ping', 'info', 'client', 'select', 'hello', 'command', 'monitor', 'quit']);
 
-const url = process.env.REDIS_URL || 'redis://localhost:6380';
+const url = process.env.REDIS_URL || 'redis://localhost:4379';
 const prefix = process.env.REDIS_KEY_PREFIX ?? '';
 
 const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
