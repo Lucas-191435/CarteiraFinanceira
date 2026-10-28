@@ -1,0 +1,97 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum TransactionType {
+  DEPOSIT
+  TRANSFER
+  REVERSAL
+}
+
+enum TransactionStatus {
+  COMPLETED
+  REVERSED
+}
+
+enum EntryDirection {
+  CREDIT
+  DEBIT
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  wallet       Wallet?
+  transactions Transaction[] // operações que este usuário iniciou
+
+  @@map("users")
+}
+
+model Wallet {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  balance   Decimal  @default(0) @db.Decimal(15, 2) // cache; fonte da verdade = entries
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user                 User          @relation(fields: [userId], references: [id])
+  entries              LedgerEntry[]
+  outgoingTransactions Transaction[] @relation("FromWallet")
+  incomingTransactions Transaction[] @relation("ToWallet")
+
+  @@map("wallets")
+}
+
+model Transaction {
+  id             String            @id @default(uuid())
+  type           TransactionType
+  status         TransactionStatus @default(COMPLETED)
+  amount         Decimal           @db.Decimal(15, 2)
+  description    String?
+  idempotencyKey String?           @unique
+  initiatorId    String // quem solicitou (não necessariamente de onde sai o dinheiro)
+  fromWalletId   String? // null no depósito (dinheiro entra no sistema)
+  toWalletId     String? // null no estorno de depósito (dinheiro sai do sistema)
+  reversalOfId   String?           @unique // só em REVERSAL; unique impede estorno duplo
+  createdAt      DateTime          @default(now())
+
+  initiator  User          @relation(fields: [initiatorId], references: [id])
+  fromWallet Wallet?       @relation("FromWallet", fields: [fromWalletId], references: [id], onDelete: Restrict)
+  toWallet   Wallet?       @relation("ToWallet", fields: [toWalletId], references: [id], onDelete: Restrict)
+  reversalOf Transaction?  @relation("Reversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy Transaction?  @relation("Reversal")
+  entries    LedgerEntry[]
+
+  @@index([fromWalletId, createdAt])
+  @@index([toWalletId, createdAt])
+  @@map("transactions")
+}
+
+model LedgerEntry {
+  id            String         @id @default(uuid())
+  walletId      String
+  transactionId String
+  direction     EntryDirection
+  amount        Decimal        @db.Decimal(15, 2)
+  balanceAfter  Decimal        @db.Decimal(15, 2)
+  createdAt     DateTime       @default(now())
+
+  wallet      Wallet      @relation(fields: [walletId], references: [id])
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+
+  @@index([walletId, createdAt])
+  @@map("ledger_entries")
+}

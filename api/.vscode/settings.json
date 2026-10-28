@@ -1,0 +1,63 @@
+{
+  "editor.fontSize": 12,
+  "window.zoomLevel": 0,
+  "debug.console.fontSize": 14,
+  "terminal.integrated.fontSize": 12,
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.codeActionsOnSave": {
+    "source.fixAll": "explicit",
+    "source.fixAll.eslint": "explicit"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true
+  },
+  "workbench.colorCustomizations": {
+    // Define a cor de fundo do item ativo na barra de atividades
+    "activityBar.activeBackground": "#58585B",
+    // Define a cor de fundo da barra de atividades
+    "activityBar.background": "#FFFFFF",
+    // Define a cor do texto e ícones na barra de atividades
+    "activityBar.foreground": "#15202b",
+    // Define a cor do texto e ícones inativos na barra de atividades
+    "activityBar.inactiveForeground": "#15202b99",
+    // Define a cor de fundo do distintivo (badge) na barra de atividades
+    "activityBarBadge.background": "#945bc4",
+    // Define a cor do texto no distintivo (badge) da barra de atividades
+    "activityBarBadge.foreground": "#e7e7e7",
+    // Define a cor da borda do Command Center
+    "commandCenter.border": "#15202b99",
+    // Define a cor da borda quando o mouse passa sobre uma divisão ajustável (sash)
+    "sash.hoverBorder": "#A19FA0",
+    // Define a cor de fundo da barra de status
+    "statusBar.background": "#FFFFFF",
+    // Define a cor do texto na barra de status
+    "statusBar.foreground": "#15202b",
+    // Define a cor de fundo do item da barra de status quando o mouse está sobre ele
+    "statusBarItem.hoverBackground": "#A19FA0",
+    // Define a cor de fundo para itens remotos na barra de status
+    "statusBarItem.remoteBackground": "#F04037",
+    // Define a cor do texto para itens remotos na barra de status
+    "statusBarItem.remoteForeground": "#15202b",
+    // Define a cor de fundo da barra de título quando a janela está ativa
+    "titleBar.activeBackground": "#F04037",
+    // Define a cor do texto da barra de título quando a janela está ativa
+    "titleBar.activeForeground": "#ffffff",
+    // Define a cor de fundo da barra de título quando a janela está inativa
+    "titleBar.inactiveBackground": "#F04037",
+    // Define a cor do texto da barra de título quando a janela está inativa
+    "titleBar.inactiveForeground": "#15202b99"
+  },
+  "[prisma]": {
+    "editor.defaultFormatter": "Prisma.prisma"
+  },
+}
