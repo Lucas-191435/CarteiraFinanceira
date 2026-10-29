@@ -23,7 +23,7 @@ function describe(entry: IStatementEntry): { icon: LucideIcon; title: string } {
   return { icon: RotateCcw, title: counterpart ? `Estorno para ${counterpart.name}` : "Estorno de depósito" };
 }
 
-export function StatementItem({ entry }: { entry: IStatementEntry }) {
+export function StatementItem({ entry, balance }: { entry: IStatementEntry; balance: string }) {
   const { icon: Icon, title } = describe(entry);
   const credit = entry.direction === "CREDIT";
   const reversed = entry.transaction.status === "REVERSED";
@@ -56,7 +56,7 @@ export function StatementItem({ entry }: { entry: IStatementEntry }) {
       </div>
 
       {/* Regra decidida pela API; o front só obedece */}
-      <div className="w-9 shrink-0">{entry.transaction.canReverse && <ReverseDialog entry={entry} title={title} />}</div>
+      <div className="w-9 shrink-0">{entry.transaction.canReverse && <ReverseDialog entry={entry} title={title} balance={balance} />}</div>
     </li>
   );
 }

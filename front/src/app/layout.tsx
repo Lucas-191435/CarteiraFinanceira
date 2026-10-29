@@ -14,6 +14,9 @@ const sans = Manrope({
   variable: "--font-manrope",
 });
 
+
+
+//teste
 export const metadata: Metadata = {
   title: {
     default: "Bolt — Carteira digital",

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FADE_IN } from "@/components/loading/text-skeleton";
-import { getStatement } from "@/lib/dal";
+import { getStatement, getWallet } from "@/lib/dal";
 import { dayKey, dayLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { IStatementEntry } from "@/types/IWallet";
@@ -21,7 +21,8 @@ type StatementListProps = {
 
 /** Lista de lançamentos agrupada por dia (Server Component; sem cache, sempre fresca). */
 export async function StatementList({ page = 1, pageSize, from, to, emptyMessage, pageHref }: StatementListProps) {
-  const statement = await getStatement(page, pageSize, from, to);
+  // O saldo atual vai para o diálogo de estorno, que avisa quando a conta vai ficar negativa
+  const [statement, wallet] = await Promise.all([getStatement(page, pageSize, from, to), getWallet()]);
 
   if (statement.rows.length === 0) {
     return <p className={cn("py-6 text-center text-sm text-muted-foreground", FADE_IN)}>{emptyMessage}</p>;
@@ -42,7 +43,7 @@ export async function StatementList({ page = 1, pageSize, from, to, emptyMessage
           <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{dayLabel(key)}</h3>
           <ul className="divide-y">
             {entries.map((entry) => (
-              <StatementItem key={entry.id} entry={entry} />
+              <StatementItem key={entry.id} entry={entry} balance={wallet.balance} />
             ))}
           </ul>
         </section>

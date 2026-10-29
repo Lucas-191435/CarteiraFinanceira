@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertCircle, RotateCcw } from "lucide-react";
+import { AlertCircle, AlertTriangle, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { reverseAction } from "@/actions/wallet";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { applyServerFieldErrors } from "@/hooks/use-server-field-errors";
 import { brl } from "@/lib/format";
+import { decimalToCents } from "@/lib/money";
 import type { IStatementEntry } from "@/types/IWallet";
 import { reverseSchema, type ReverseInput } from "@/validations/wallet";
 
@@ -31,7 +32,7 @@ function effectOf(entry: IStatementEntry) {
   if (entry.transaction.type === "DEPOSIT") {
     return (
       <>
-        <strong>{amount}</strong> saem da sua carteira. Seu saldo pode ficar negativo.
+        <strong>{amount}</strong> saem da sua carteira.
       </>
     );
   }
@@ -44,7 +45,15 @@ function effectOf(entry: IStatementEntry) {
   );
 }
 
-export function ReverseDialog({ entry, title }: { entry: IStatementEntry; title: string }) {
+/** Saldo em centavos depois de estornar um depósito; null nos outros tipos (o meu saldo não diminui). */
+function balanceAfterReversal(entry: IStatementEntry, balance: string): number | null {
+  if (entry.transaction.type !== "DEPOSIT") return null;
+  return decimalToCents(balance) - decimalToCents(entry.amount);
+}
+
+export function ReverseDialog({ entry, title, balance }: { entry: IStatementEntry; title: string; balance: string }) {
+  const afterCents = balanceAfterReversal(entry, balance);
+  const goesNegative = afterCents !== null && afterCents < 0;
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState<string>();
   const [isPending, startTransition] = useTransition();
@@ -93,6 +102,14 @@ export function ReverseDialog({ entry, title }: { entry: IStatementEntry; title:
             </AlertDialogDescription>
           </AlertDialogHeader>
 
+          {goesNegative && (
+            <Alert variant="destructive">
+              <AlertTriangle />
+              <AlertDescription>
+                Seu saldo vai ficar negativo: de {brl(balance)} para <strong>{brl(afterCents / 100)}</strong>.
+              </AlertDescription>
+            </Alert>
+          )}
           {message && (
             <Alert variant="destructive">
               <AlertCircle />
